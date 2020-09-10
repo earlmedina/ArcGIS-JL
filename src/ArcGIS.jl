@@ -7,7 +7,7 @@ using Parameters
 using DataFrames
 
 
-
+export GIS, FeatureLayerCollection, FeatureLayer, FeatureSet, df_to_json, set_entities, applyEdits
 ######################### GIS TYPE ######################### 
 @with_kw mutable struct GIS{T <: String} 
        url::T
