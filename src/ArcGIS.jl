@@ -7,7 +7,6 @@ using Parameters
 using DataFrames
 
 
-export GIS, FeatureLayerCollection, FeatureLayer, FeatureSet, df_to_json, set_entities, applyEdits
 ######################### GIS TYPE ######################### 
 @with_kw mutable struct GIS{T <: String} 
        url::T
@@ -17,11 +16,11 @@ end
 # Function Object used to obtain and set token
 function (p::GIS)(username, password)
     portal = p.url
-    payload = "username=$username&password=$password&client=referer&f=json&referer=$portal"
+    params = Dict("username"=>username, "password"=>password, "client"=>"referer", "referer"=>portal, "f"=>"json")
     url = "$portal/sharing/rest/generateToken"
     response = HTTP.request("POST", url,
                  ["Content-Type" => "application/x-www-form-urlencoded", "accept"=>"application/json"],
-                 payload)
+                 HTTP.URIs.escapeuri(params))
 
     token = JSON3.read(String(response.body))["token"]
     p.token = token
@@ -29,12 +28,11 @@ function (p::GIS)(username, password)
 end
 
 
-
 ######################### FLC TYPE ######################### 
 @with_kw mutable struct FeatureLayerCollection
     url::String
     gis::GIS
-    properties = get_properties(url, gis.token)
+    properties::JSON3.Object{Base.CodeUnits{UInt8,String},Array{UInt64,1}} = get_properties(url, gis.token)
     layers = properties.layers
     tables = properties.tables
     entities = []
@@ -46,7 +44,6 @@ function set_entities(p::FeatureLayerCollection)
     p.entities = [FeatureLayer(url=fl_url, gis=p.gis) for fl_url in fl_urls]
     return "Entities set"
 end
-
 
 
 ######################### FL TYPE ########################## 
@@ -66,11 +63,10 @@ function (p::FeatureLayer)(query="1=1", outfields="*")
     geometryType = ""
     features = []
     df = nothing
-    
-    params = "where=$query&outfields=$outfields&token=$(p.gis.token)&f=JSON"
+    params = Dict("token"=>p.gis.token, "f"=>"JSON", "outfields"=>outfields, "where"=>query)
     r = HTTP.request("POST", "$(p.url)/query",
                  ["Content-Type" => "application/x-www-form-urlencoded", "accept"=>"application/json"],
-                 params)
+                 HTTP.URIs.escapeuri(params))
     json = JSON.parse(String(r.body))
     
     if "spatialReference" in keys(json)
@@ -107,32 +103,49 @@ end
 # Adds/Updates/Deletes: json array as String
 function applyEdits(FeatureLayer; adds="[]", updates="[]", deletes="[]")
     url = "$(FeatureLayer.url)/applyEdits"
-    params = "token=$(FeatureLayer.gis.token)&f=JSON&adds=$adds&updates=$updates&deletes=$deletes"
+    params = Dict("token"=>FeatureLayer.gis.token, "f"=>"JSON", "adds"=>adds, "updates"=>updates, "deletes"=>deletes)
     r = HTTP.request("POST", url,
                  ["Content-Type" => "application/x-www-form-urlencoded", "accept"=>"application/json"],
-                 params)
+                 HTTP.URIs.escapeuri(params))
+    r_json = JSON3.read(String(r.body))
+    JSON.print(r_json)
+end
+
+# Adds/Updates/Deletes: json array as String
+function queryAttachments(FeatureLayer; ids, definitionExpression="", useGlobalIds=false, returnUrl=true, returnMetadata=false)
+    if useGlobalIds
+        globalIds = ids
+        objectIds = ""
+    else
+        objectIds = ids
+        globalIds = ""
+    end
+    url = "$(FeatureLayer.url)/queryAttachments"
+    params = Dict("token"=>FeatureLayer.gis.token, "f"=>"JSON", "objectIds"=>objectIds, "globalIds"=>globalIds,
+        "definitionExpression"=>definitionExpression, "returnUrl"=>returnUrl, "returnMetadata"=>returnMetadata)
+    r = HTTP.request("POST", url,
+                 ["Content-Type" => "application/x-www-form-urlencoded", "accept"=>"application/json"],
+                 HTTP.URIs.escapeuri(params))
     r_json = JSON3.read(String(r.body))
     JSON.print(r_json)
 end
 
 
-
 ######################### FS TYPE ########################## 
 @with_kw mutable struct FeatureSet
     sr = nothing
-    fields::Array = []
-    geometryType::String = ""
-    features::Array = []
+    fields = []
+    geometryType = ""
+    features  = []
     df = nothing
 end
 
-
 # General function used to get service/layer properties
 function get_properties(url, token)
-    params = "token=$token&f=JSON"
+    params = Dict("token"=>token, "f"=>"JSON")
     r = HTTP.request("POST", url,
                  ["Content-Type" => "application/x-www-form-urlencoded", "accept"=>"application/json"],
-                 params)
+                 HTTP.URIs.escapeuri(params))
     r_json = JSON3.read(String(r.body))
     return r_json
 end
